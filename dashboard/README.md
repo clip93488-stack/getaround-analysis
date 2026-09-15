@@ -1,4 +1,4 @@
-# 🚗 GetAround — Dashboard délai minimum
+# GetAround — Dashboard délai minimum
 
 Outil d'aide à la décision destiné au Product Manager : il chiffre l'effet d'un **délai minimum
 entre deux locations** (`threshold`) appliqué à un **périmètre** (`scope`), et rend visible

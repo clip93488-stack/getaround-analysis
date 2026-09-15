@@ -1,0 +1,36 @@
+# Theme du dashboard : clair, sobre, une seule couleur d'accent (bleu marine).
+# Streamlit lit ce fichier depuis le dossier du script : il s'applique aussi bien
+# a `streamlit run app.py` depuis dashboard/ (cas de Render) que depuis la racine.
+# Les couleurs des graphiques Plotly sont definies dans app.py avec la meme palette.
+
+[theme]
+base = "light"
+primaryColor = "#1E3A5F"
+backgroundColor = "#FAFAFA"
+secondaryBackgroundColor = "#F0F0F0"
+textColor = "#1A1A1A"
+linkColor = "#1E3A5F"
+borderColor = "#E5E5E5"
+showSidebarBorder = true
+baseRadius = "0.25rem"
+
+# Titres : tailles resserrees et un seul niveau de graisse (600) du h1 au h6.
+headingFontSizes = ["1.75rem", "1.375rem", "1.125rem", "1rem", "0.9375rem", "0.875rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+metricValueFontSize = "1.875rem"
+metricValueFontWeight = 600
+
+# Code inline et blocs de code en gris neutre (vert par defaut).
+codeTextColor = "#1A1A1A"
+codeBackgroundColor = "#F0F0F0"
+
+# Texte secondaire des st.metric (delta_color="off") et tableaux.
+grayColor = "#6B6B6B"
+dataframeHeaderBackgroundColor = "#F3F3F3"
+chartCategoricalColors = ["#1E3A5F", "#7A8BA2"]
+
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F5F5"
+headingFontSizes = ["1.25rem", "1rem", "1rem", "0.9375rem", "0.875rem", "0.75rem"]
+headingFontWeights = [600, 600, 600, 600, 600, 600]

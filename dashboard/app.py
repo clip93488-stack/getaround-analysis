@@ -21,44 +21,85 @@ import streamlit as st
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="GetAround — Delai minimum",
-    page_icon="🚗",
+    page_title="GetAround — Délai minimum",
+    page_icon=":material/directions_car:",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-CONNECT, MOBILE = "#7C3AED", "#EA580C"
-OK, WARN, BAD, INFO = "#22C55E", "#F59E0B", "#EF4444", "#0EA5E9"
-TYPE_COLORS = {"connect": CONNECT, "mobile": MOBILE}
+# Palette : une seule couleur d'accent, declinee en deux teintes pour les graphiques
+# (ecart perceptible y compris pour les daltoniens), et des gris neutres pour le texte.
+# Le theme des widgets (slider, onglets, titres) est dans .streamlit/config.toml.
+ACCENT = "#1E3A5F"
+ACCENT_LIGHT = "#7A8BA2"
+ACCENT_WASH = "rgba(30, 58, 95, 0.08)"
+INK, INK_SECONDARY, INK_MUTED = "#1A1A1A", "#4A4A4A", "#6B6B6B"
+GRID, AXIS, SURFACE = "#EBEBEB", "#CFCFCF", "#FAFAFA"
+TYPE_COLORS = {"mobile": ACCENT, "connect": ACCENT_LIGHT}
+
+# Les deltas des st.metric servent de legende chiffree, pas de variation :
+# ni fleche ni couleur verte/rouge.
+NEUTRAL_DELTA = dict(delta_color="off", delta_arrow="off")
 
 RECOMMENDED_THRESHOLD = 120
 RECOMMENDED_SCOPE = "all"
 
 st.markdown(
-    """
+    f"""
     <style>
-      .block-container {padding-top: 2.2rem; padding-bottom: 3rem;}
-      h1, h2, h3 {letter-spacing: -0.02em;}
-      div[data-testid="stMetric"] {
-        background: rgba(128, 128, 128, 0.08);
-        border: 1px solid rgba(128, 128, 128, 0.18);
-        border-radius: 12px;
-        padding: 14px 16px;
-      }
-      div[data-testid="stMetricLabel"] {opacity: 0.75;}
-      .callout {
-        border-left: 4px solid #22C55E;
-        background: rgba(34, 197, 94, 0.08);
-        border-radius: 0 10px 10px 0;
+      .block-container {{padding-top: 2.5rem; padding-bottom: 3rem;}}
+      h1, h2, h3, h4, h5, h6 {{letter-spacing: -0.01em;}}
+      .lead {{color: {INK_SECONDARY}; max-width: 62rem; margin-bottom: 1.5rem;}}
+      div[data-testid="stMetric"] {{
+        background: #FFFFFF;
+        border: 1px solid #E5E5E5;
+        border-radius: 6px;
+        padding: 16px 20px;
+      }}
+      /* Cartes KPI d'une meme rangee a hauteur egale (colonnes ne contenant qu'un KPI) */
+      div[data-testid="stColumn"]:has(> div > div:only-child > div[data-testid="stMetric"]) > div,
+      div[data-testid="stElementContainer"]:only-child:has(> div[data-testid="stMetric"]),
+      div[data-testid="stElementContainer"]:only-child > div[data-testid="stMetric"] {{height: 100%;}}
+      div[data-testid="stMetricLabel"] p {{color: {INK_SECONDARY}; font-size: 0.8125rem;}}
+      div[data-testid="stMetricDelta"] {{background: transparent; padding: 0;}}
+      div[data-testid="stMetricDelta"] p {{white-space: normal; font-size: 0.8125rem;}}
+      .callout {{
+        background: #FFFFFF;
+        border: 1px solid #E5E5E5;
+        border-left: 3px solid {ACCENT};
+        border-radius: 0 6px 6px 0;
         padding: 14px 18px;
-        margin: 6px 0 18px 0;
-      }
-      .callout-warn {border-left-color: #F59E0B; background: rgba(245, 158, 11, 0.08);}
-      .callout-info {border-left-color: #0EA5E9; background: rgba(14, 165, 233, 0.08);}
+        margin: 12px 0 24px 0;
+        color: {INK};
+      }}
+      .callout b {{font-weight: 600;}}
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+def style_chart(fig: go.Figure) -> go.Figure:
+    """Habillage commun des graphiques : fond transparent, grille fine, texte en gris."""
+    fig.update_layout(
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+        font=dict(color=INK_SECONDARY, size=12),
+        legend_font_color=INK_SECONDARY,
+        legend_title_font_color=INK_MUTED,
+        hoverlabel=dict(bgcolor="#FFFFFF", bordercolor="#E5E5E5", font_color=INK),
+    )
+    if fig.layout.title.text:  # sans texte, Plotly afficherait « undefined »
+        fig.update_layout(title_font=dict(color=INK, size=14, weight=600))
+    fig.update_xaxes(
+        showgrid=False, zeroline=False, showline=True, linecolor=AXIS,
+        tickfont_color=INK_MUTED, title_font_color=INK_MUTED,
+    )
+    fig.update_yaxes(
+        gridcolor=GRID, zeroline=False, showline=False,
+        tickfont_color=INK_MUTED, title_font_color=INK_MUTED,
+    )
+    return fig
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -79,7 +120,7 @@ def _find_data_file() -> Path:
     )
 
 
-@st.cache_data(show_spinner="Chargement des donnees...")
+@st.cache_data(show_spinner="Chargement des données...")
 def load_data():
     """Charge les locations et derive le perimetre des locations consecutives.
 
@@ -153,40 +194,40 @@ def simulation_grid() -> pd.DataFrame:
 # Sidebar — les deux leviers de decision
 # ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ Parametres de la regle")
+    st.header("Paramètres de la règle")
 
     threshold = st.slider(
-        "Delai minimum entre deux locations",
+        "Délai minimum entre deux locations",
         min_value=0,
         max_value=720,
         value=RECOMMENDED_THRESHOLD,
         step=30,
         format="%d min",
-        help="Une voiture n'est plus reservable si l'ecart avec la location "
-        "precedente est inferieur a ce seuil.",
+        help="Une voiture n'est plus réservable si l'écart avec la location "
+        "précédente est inférieur à ce seuil.",
     )
     st.caption(f"Soit **{threshold // 60} h {threshold % 60:02d} min**")
 
     scope = st.radio(
-        "Perimetre d'application",
+        "Périmètre d'application",
         options=["all", "connect"],
         format_func=lambda s: (
             "Toutes les voitures" if s == "all" else "Voitures Connect uniquement"
         ),
-        help="La regle s'applique-t-elle a l'ensemble de la flotte, ou seulement "
-        "aux voitures equipees de la technologie Connect ?",
+        help="La règle s'applique-t-elle à l'ensemble de la flotte, ou seulement "
+        "aux voitures équipées de la technologie Connect ?",
     )
 
     st.divider()
     st.caption(
-        f"**Perimetre de l'analyse**\n\n"
+        f"**Périmètre de l'analyse**\n\n"
         f"- {N_TOTAL:,} locations au total\n"
-        f"- {N_CONSEC:,} avec une location precedente < 12 h\n"
-        f"- {N_PROBLEMATIC:,} cas problematiques identifies"
+        f"- {N_CONSEC:,} avec une location précédente < 12 h\n"
+        f"- {N_PROBLEMATIC:,} cas problématiques identifiés"
     )
     st.caption(
-        "Un cas est **problematique** quand le conducteur precedent rend la voiture "
-        "apres l'heure de debut prevue de la location suivante."
+        "Un cas est *problématique* quand le conducteur précédent rend la voiture "
+        "après l'heure de début prévue de la location suivante."
     )
 
 sim = simulate(threshold, scope)
@@ -195,89 +236,85 @@ grid = simulation_grid()
 # ─────────────────────────────────────────────────────────────────────────────
 # En-tete
 # ─────────────────────────────────────────────────────────────────────────────
-st.title("🚗 GetAround — Delai minimum entre deux locations")
+st.title("GetAround — Délai minimum entre deux locations")
 st.markdown(
-    "**Outil d'aide a la decision.** Les conducteurs rendent parfois la voiture en retard, "
-    "ce qui penalise le conducteur suivant. Imposer un delai minimum entre deux locations "
-    "reduit ces frictions — mais bloque aussi des reservations. "
-    "Reglez le seuil et le perimetre dans la barre laterale pour chiffrer l'arbitrage."
+    '<p class="lead">Outil d\'aide à la décision. Les conducteurs rendent parfois la voiture '
+    "en retard, ce qui pénalise le conducteur suivant. Imposer un délai minimum entre deux "
+    "locations réduit ces frictions — mais bloque aussi des réservations. "
+    "Réglez le seuil et le périmètre dans la barre latérale pour chiffrer l'arbitrage.</p>",
+    unsafe_allow_html=True,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # KPI
 # ─────────────────────────────────────────────────────────────────────────────
-st.subheader("Impact de la regle selectionnee")
+st.subheader("Impact de la règle sélectionnée")
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric(
-    "✅ Cas resolus",
+    "Cas résolus",
     f"{sim['nb_solved']:,}",
     f"{sim['pct_solved']:.1f}% des {N_PROBLEMATIC} cas",
+    **NEUTRAL_DELTA,
 )
 k2.metric(
-    "⚠️ Cas restants",
+    "Cas restants",
     f"{sim['nb_remaining']:,}",
-    f"{100 - sim['pct_solved']:.1f}% non traites",
-    delta_color="inverse",
+    f"{100 - sim['pct_solved']:.1f}% non traités",
+    **NEUTRAL_DELTA,
 )
 k3.metric(
-    "🔒 Locations bloquees",
+    "Locations bloquées",
     f"{sim['nb_blocked']:,}",
     f"{sim['pct_blocked_total']:.2f}% du volume total",
-    delta_color="inverse",
+    **NEUTRAL_DELTA,
 )
 k4.metric(
-    "⚖️ Rendement",
+    "Rendement",
     "—" if np.isnan(sim["efficiency"]) else f"{sim['efficiency']:.2f}",
-    "cas resolu par location bloquee",
-    delta_color="off",
+    "cas résolu par location bloquée",
+    **NEUTRAL_DELTA,
 )
 
 # Lecture automatique du reglage courant
 if threshold == 0:
-    verdict, css = (
-        "**Aucune regle active.** Les 218 cas problematiques subsistent en totalite.",
-        "callout-warn",
-    )
+    verdict = "**Aucune règle active.** Les 218 cas problématiques subsistent en totalité."
 elif scope == "connect":
-    verdict, css = (
-        f"Le perimetre **Connect** plafonne a **{grid[grid.scope == 'connect'].pct_solved.max():.0f}% "
-        "de cas resolus**, quel que soit le seuil : le flux mobile concentre 80 % du volume "
-        "et 1,8x plus de cas problematiques. Elargir a toutes les voitures traite bien plus "
-        "de cas a cout comparable.",
-        "callout-warn",
+    verdict = (
+        f"Le périmètre **Connect** plafonne à **{grid[grid.scope == 'connect'].pct_solved.max():.0f}% "
+        "de cas résolus**, quel que soit le seuil : le flux mobile concentre 80 % du volume "
+        "et 1,8x plus de cas problématiques. Élargir à toutes les voitures traite bien plus "
+        "de cas à coût comparable."
     )
 elif threshold >= 300:
-    verdict, css = (
-        f"Seuil eleve : **{sim['pct_solved']:.0f}% des cas resolus**, mais "
-        f"**{sim['nb_blocked']:,} locations bloquees** ({sim['pct_blocked_total']:.1f}% du volume). "
-        "Au-dela de 2 h, chaque point de benefice supplementaire coute de plus en plus cher — "
-        "la courbe des cas resolus a sature.",
-        "callout-warn",
+    verdict = (
+        f"Seuil élevé : **{sim['pct_solved']:.0f}% des cas résolus**, mais "
+        f"**{sim['nb_blocked']:,} locations bloquées** ({sim['pct_blocked_total']:.1f}% du volume). "
+        "Au-delà de 2 h, chaque point de bénéfice supplémentaire coûte de plus en plus cher — "
+        "la courbe des cas résolus a saturé."
     )
 else:
-    verdict, css = (
-        f"Reglage equilibre : **{sim['pct_solved']:.0f}% des cas problematiques resolus** "
-        f"pour seulement **{sim['pct_blocked_total']:.1f}% des locations bloquees**.",
-        "callout",
+    verdict = (
+        f"Réglage équilibré : **{sim['pct_solved']:.0f}% des cas problématiques résolus** "
+        f"pour seulement **{sim['pct_blocked_total']:.1f}% des locations bloquées**."
     )
 
 # Le callout est du HTML : on convertit le gras markdown en balises <b>
 verdict = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", verdict)
-st.markdown(f'<div class="callout {css}">{verdict}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="callout">{verdict}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Arbitrage
 # ─────────────────────────────────────────────────────────────────────────────
 tab_tradeoff, tab_delays, tab_reco, tab_method = st.tabs(
-    ["📈 Arbitrage benefice / cout", "⏱️ Analyse des retards", "🎯 Recommandation", "🔬 Methodologie"]
+    ["Arbitrage bénéfice / coût", "Analyse des retards", "Recommandation", "Méthodologie"]
 )
 
 with tab_tradeoff:
     left, right = st.columns([3, 2])
 
     with left:
-        st.markdown("##### Benefice et cout selon le seuil")
+        st.markdown("##### Bénéfice et coût selon le seuil")
         current = grid[grid.scope == scope]
 
         fig = go.Figure()
@@ -285,26 +322,28 @@ with tab_tradeoff:
             go.Scatter(
                 x=current.threshold,
                 y=current.pct_solved,
-                name="Cas problematiques resolus",
-                line=dict(color=OK, width=3),
+                name="Cas problématiques résolus",
+                line=dict(color=ACCENT, width=2),
                 fill="tozeroy",
-                fillcolor="rgba(34, 197, 94, 0.12)",
+                fillcolor=ACCENT_WASH,
             )
         )
         fig.add_trace(
             go.Scatter(
                 x=current.threshold,
                 y=current.pct_blocked_consec,
-                name="Locations consecutives bloquees",
-                line=dict(color=BAD, width=3, dash="dot"),
+                name="Locations consécutives bloquées",
+                line=dict(color=ACCENT_LIGHT, width=2, dash="dot"),
             )
         )
         fig.add_vline(
             x=threshold,
             line_dash="dash",
-            line_color="#64748B",
+            line_width=1,
+            line_color=INK_MUTED,
             annotation_text=f"{threshold} min",
             annotation_position="top",
+            annotation_font_color=INK_SECONDARY,
         )
         fig.update_layout(
             xaxis_title="Seuil (minutes)",
@@ -314,12 +353,12 @@ with tab_tradeoff:
             legend=dict(orientation="h", y=-0.2),
             margin=dict(t=20, l=10, r=10, b=10),
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(style_chart(fig), width="stretch")
 
     with right:
-        st.markdown("##### Frontiere cout / benefice")
+        st.markdown("##### Frontière coût / bénéfice")
         pts = grid[grid.threshold > 0].copy()
-        pts["Perimetre"] = pts.scope.map(
+        pts["Périmètre"] = pts.scope.map(
             {"all": "Toutes les voitures", "connect": "Connect uniquement"}
         )
 
@@ -327,21 +366,22 @@ with tab_tradeoff:
             pts,
             x="pct_blocked_total",
             y="pct_solved",
-            color="Perimetre",
-            color_discrete_map={"Toutes les voitures": INFO, "Connect uniquement": CONNECT},
+            color="Périmètre",
+            color_discrete_map={"Toutes les voitures": ACCENT, "Connect uniquement": ACCENT_LIGHT},
             hover_data={"threshold": True},
             labels={
-                "pct_blocked_total": "Cout — % de toutes les locations bloquees",
-                "pct_solved": "Benefice — % de cas resolus",
+                "pct_blocked_total": "Coût — % de toutes les locations bloquées",
+                "pct_solved": "Bénéfice — % de cas résolus",
             },
         )
+        fig2.update_traces(marker=dict(size=8, line=dict(width=1, color=SURFACE)))
         fig2.add_trace(
             go.Scatter(
                 x=[sim["pct_blocked_total"]],
                 y=[sim["pct_solved"]],
                 mode="markers",
-                marker=dict(size=18, color=OK, line=dict(width=3, color="white")),
-                name="Reglage actuel",
+                marker=dict(size=18, color="rgba(0, 0, 0, 0)", line=dict(width=2, color=INK)),
+                name="Réglage actuel",
             )
         )
         fig2.update_layout(
@@ -349,29 +389,29 @@ with tab_tradeoff:
             legend=dict(orientation="h", y=-0.25),
             margin=dict(t=20, l=10, r=10, b=10),
         )
-        st.plotly_chart(fig2, width="stretch")
-        st.caption("Plus un point est **haut et a gauche**, meilleur est le compromis.")
+        st.plotly_chart(style_chart(fig2), width="stretch")
+        st.caption("Plus un point est **haut et à gauche**, meilleur est le compromis.")
 
-    st.markdown("##### Grille de decision")
+    st.markdown("##### Grille de décision")
     table = (
         grid[(grid.scope == scope) & (grid.threshold.isin([30, 60, 90, 120, 180, 240, 360, 480, 720]))]
         .assign(
             Seuil=lambda d: d.threshold.astype(str) + " min",
             **{
-                "Cas resolus": lambda d: d.nb_solved.astype(str)
+                "Cas résolus": lambda d: d.nb_solved.astype(str)
                 + " (" + d.pct_solved.round(1).astype(str) + "%)",
                 "Cas restants": lambda d: d.nb_remaining,
-                "Locations bloquees": lambda d: d.nb_blocked.astype(str)
+                "Locations bloquées": lambda d: d.nb_blocked.astype(str)
                 + " (" + d.pct_blocked_total.round(2).astype(str) + "%)",
                 "Rendement": lambda d: d.efficiency.round(3),
             },
         )
-        .loc[:, ["Seuil", "Cas resolus", "Cas restants", "Locations bloquees", "Rendement"]]
+        .loc[:, ["Seuil", "Cas résolus", "Cas restants", "Locations bloquées", "Rendement"]]
     )
     st.dataframe(table, width="stretch", hide_index=True)
 
 with tab_delays:
-    st.markdown("##### D'ou vient le probleme ?")
+    st.markdown("##### D'où vient le problème ?")
 
     c1, c2 = st.columns(2)
 
@@ -384,20 +424,20 @@ with tab_delays:
             color="checkin_type",
             nbins=80,
             barmode="overlay",
-            opacity=0.75,
+            opacity=0.9,
             color_discrete_map=TYPE_COLORS,
             labels={
                 "delay_at_checkout_in_minutes": "Retard au checkout (min)",
                 "checkin_type": "Canal",
             },
-            title="Distribution des retards (fenetre ±12 h)",
+            title="Distribution des retards (fenêtre ±12 h)",
         )
-        fig3.add_vline(x=0, line_dash="dash", line_color="#64748B")
+        fig3.add_vline(x=0, line_dash="dash", line_width=1, line_color=INK_MUTED)
         fig3.update_layout(height=380, bargap=0.02, legend=dict(orientation="h", y=-0.25))
-        st.plotly_chart(fig3, width="stretch")
+        st.plotly_chart(style_chart(fig3), width="stretch")
         st.caption(
-            "95 % des restitutions tiennent dans cette fenetre. Les extremes "
-            "(jusqu'a 49 jours) sont conserves dans les calculs mais exclus de ce graphique."
+            "95 % des restitutions tiennent dans cette fenêtre. Les extrêmes "
+            "(jusqu'à 49 jours) sont conservés dans les calculs mais exclus de ce graphique."
         )
 
     with c2:
@@ -417,18 +457,18 @@ with tab_delays:
             text="taux",
             color="checkin_type",
             color_discrete_map=TYPE_COLORS,
-            labels={"checkin_type": "Canal", "taux": "% de cas problematiques"},
-            title="Taux de cas problematiques par canal",
+            labels={"checkin_type": "Canal", "taux": "% de cas problématiques"},
+            title="Taux de cas problématiques par canal",
         )
-        fig4.update_traces(texttemplate="%{text}%", textposition="outside")
-        fig4.update_layout(height=380, showlegend=False)
-        st.plotly_chart(fig4, width="stretch")
+        fig4.update_traces(texttemplate="%{text}%", textposition="outside", textfont_color=INK_SECONDARY)
+        fig4.update_layout(height=380, showlegend=False, bargap=0.55)
+        st.plotly_chart(style_chart(fig4), width="stretch")
         st.caption(
-            "Le flux **mobile** est 1,8x plus problematique que **Connect** — et represente "
-            "80 % du volume. C'est l'argument central en faveur du perimetre `all`."
+            "Le flux **mobile** est 1,8x plus problématique que **Connect** — et représente "
+            "80 % du volume. C'est l'argument central en faveur du périmètre `all`."
         )
 
-    st.markdown("##### Le retard du conducteur precedent se paie en annulations")
+    st.markdown("##### Le retard du conducteur précédent se paie en annulations")
     cancel = (
         analysed.groupby("is_problematic")["state"]
         .value_counts(normalize=True)
@@ -436,122 +476,134 @@ with tab_delays:
         .mul(100)
         .round(1)
     )
-    cancel.index = ["Location normale", "Conducteur precedent en retard"]
+    cancel.index = ["Location normale", "Conducteur précédent en retard"]
 
     c3, c4 = st.columns([2, 1])
     with c3:
         fig5 = px.bar(
-            cancel.reset_index().melt(id_vars="index", var_name="Etat", value_name="pct"),
+            cancel.reset_index().melt(id_vars="index", var_name="État", value_name="pct"),
             x="index",
             y="pct",
-            color="Etat",
+            color="État",
             barmode="group",
             text="pct",
-            color_discrete_map={"canceled": BAD, "ended": OK},
+            color_discrete_map={"canceled": ACCENT, "ended": ACCENT_LIGHT},
             labels={"index": "", "pct": "% des locations"},
         )
-        fig5.update_traces(texttemplate="%{text}%", textposition="outside")
-        fig5.update_layout(height=340, legend=dict(orientation="h", y=-0.2))
-        st.plotly_chart(fig5, width="stretch")
+        fig5.update_traces(texttemplate="%{text}%", textposition="outside", textfont_color=INK_SECONDARY)
+        fig5.update_layout(
+            height=340, legend=dict(orientation="h", y=-0.2), bargap=0.35, bargroupgap=0.08
+        )
+        st.plotly_chart(style_chart(fig5), width="stretch")
     with c4:
         st.metric(
             "Taux d'annulation",
-            f"{cancel.loc['Conducteur precedent en retard', 'canceled']:.1f}%",
+            f"{cancel.loc['Conducteur précédent en retard', 'canceled']:.1f}%",
             f"vs {cancel.loc['Location normale', 'canceled']:.1f}% en temps normal",
-            delta_color="inverse",
+            **NEUTRAL_DELTA,
         )
         st.markdown(
-            '<div class="callout callout-info">Le retard du conducteur precedent fait bondir '
-            "les annulations de <b>+52 % en relatif</b>. Le probleme ne degrade pas seulement "
-            "l'experience : il detruit du chiffre d'affaires.</div>",
+            '<div class="callout">Le retard du conducteur précédent fait bondir '
+            "les annulations de <b>+52 % en relatif</b>. Le problème ne dégrade pas seulement "
+            "l'expérience : il détruit du chiffre d'affaires.</div>",
             unsafe_allow_html=True,
         )
 
 with tab_reco:
-    st.markdown("### Recommandation : **120 minutes**, perimetre **toutes les voitures**")
+    st.markdown("### Recommandation : 120 minutes, périmètre toutes les voitures")
 
     reco = simulate(RECOMMENDED_THRESHOLD, RECOMMENDED_SCOPE)
     r1, r2, r3, r4 = st.columns(4)
-    r1.metric("Cas resolus", f"{reco['nb_solved']}", f"{reco['pct_solved']:.1f}% du probleme")
+    r1.metric(
+        "Cas résolus",
+        f"{reco['nb_solved']}",
+        f"{reco['pct_solved']:.1f}% du problème",
+        **NEUTRAL_DELTA,
+    )
     r2.metric("Cas restants", f"{reco['nb_remaining']}")
-    r3.metric("Locations bloquees", f"{reco['nb_blocked']}", f"{reco['pct_blocked_total']:.1f}% du volume")
-    r4.metric("Rendement", f"{reco['efficiency']:.2f}", "cas / location bloquee", delta_color="off")
+    r3.metric(
+        "Locations bloquées",
+        f"{reco['nb_blocked']}",
+        f"{reco['pct_blocked_total']:.1f}% du volume",
+        **NEUTRAL_DELTA,
+    )
+    r4.metric("Rendement", f"{reco['efficiency']:.2f}", "cas / location bloquée", **NEUTRAL_DELTA)
 
     st.markdown(
         """
 #### Pourquoi 120 minutes
 
-- **vs 60 min** — +15,6 pts de cas resolus (67 % → 83 %) pour seulement +1,2 pt de locations
-  bloquees. C'est le meilleur rapport marginal de toute la grille.
-- **vs 180 min** — +7,3 pts de benefice seulement, pour +1,0 pt de cout : on entre dans la zone
-  de rendement decroissant. **90 min** reste une alternative defendable si la priorite est de
-  preserver les revenus (79 % de cas resolus pour 2,7 % de locations bloquees).
+- **vs 60 min** — +15,6 pts de cas résolus (67 % → 83 %) pour seulement +1,2 pt de locations
+  bloquées. C'est le meilleur rapport marginal de toute la grille.
+- **vs 180 min** — +7,3 pts de bénéfice seulement, pour +1,0 pt de coût : on entre dans la zone
+  de rendement décroissant. 90 min reste une alternative défendable si la priorité est de
+  préserver les revenus (79 % de cas résolus pour 2,7 % de locations bloquées).
 
-#### Pourquoi toutes les voitures plutot que Connect
+#### Pourquoi toutes les voitures plutôt que Connect
 
-Le perimetre Connect **plafonne a 32 % de cas resolus**, quel que soit le seuil retenu.
-Le flux mobile concentre 80 % du volume et affiche un taux de cas problematiques 1,8x superieur :
-l'exclure du perimetre revient a ignorer l'essentiel du probleme.
+Le périmètre Connect **plafonne à 32 % de cas résolus**, quel que soit le seuil retenu.
+Le flux mobile concentre 80 % du volume et affiche un taux de cas problématiques 1,8x supérieur :
+l'exclure du périmètre revient à ignorer l'essentiel du problème.
 
-#### Precautions
+#### Précautions
 
-Ces chiffres reposent sur **1 729 locations consecutives** avec retard precedent mesure, soit 8 %
-du dataset. Le modele suppose par ailleurs qu'une location bloquee est une location **perdue** —
-hypothese volontairement pessimiste, puisqu'en pratique une partie des conducteurs decalerait
-simplement sa reservation. Le cout reel est donc vraisemblablement **inferieur** aux 3,1 % annonces.
+Ces chiffres reposent sur 1 729 locations consécutives avec retard précédent mesuré, soit 8 %
+du dataset. Le modèle suppose par ailleurs qu'une location bloquée est une location *perdue* —
+hypothèse volontairement pessimiste, puisqu'en pratique une partie des conducteurs décalerait
+simplement sa réservation. Le coût réel est donc vraisemblablement *inférieur* aux 3,1 % annoncés.
 
-#### Prochaine etape
+#### Prochaine étape
 
-Un **A/B test** sur un sous-ensemble de voitures, avec suivi du taux d'annulation et du revenu par
-voiture, permettrait de valider ces estimations en conditions reelles avant generalisation.
+Un A/B test sur un sous-ensemble de voitures, avec suivi du taux d'annulation et du revenu par
+voiture, permettrait de valider ces estimations en conditions réelles avant généralisation.
         """
     )
 
 with tab_method:
     st.markdown(
         f"""
-#### Definition d'un cas problematique
+#### Définition d'un cas problématique
 
-Pour une location *r* precedee d'une location *p* sur la meme voiture :
+Pour une location *r* précédée d'une location *p* sur la même voiture :
 
 ```
 retard_utile(r) = delay_at_checkout(p) − time_delta(r)
-r est problematique  ⟺  retard_utile(r) > 0
+r est problématique  ⟺  retard_utile(r) > 0
 ```
 
-Le retard qui gene le conducteur d'une location est celui de la location **precedente**.
-Il est recupere par jointure `previous_ended_rental_id` → `rental_id` : comparer le
-`delay_at_checkout_in_minutes` d'une ligne a son propre `time_delta_with_previous_rental_in_minutes`
-confronterait deux grandeurs qui ne portent pas sur la meme location.
+Le retard qui gêne le conducteur d'une location est celui de la location *précédente*.
+Il est récupéré par jointure `previous_ended_rental_id` → `rental_id` : comparer le
+`delay_at_checkout_in_minutes` d'une ligne à son propre `time_delta_with_previous_rental_in_minutes`
+confronterait deux grandeurs qui ne portent pas sur la même location.
 
-#### Modelisation de la regle
+#### Modélisation de la règle
 
-Pour un seuil `T` sur un perimetre `S` :
+Pour un seuil `T` sur un périmètre `S` :
 
-| Metrique | Definition |
+| Métrique | Définition |
 |---|---|
-| Locations bloquees | locations de `S` dont `time_delta < T` — elles n'auraient pas pu etre reservees |
-| Cas resolus | cas problematiques de `S` dont `time_delta < T` — la reservation conflictuelle n'a pas lieu |
-| Cas restants | cas problematiques dont `time_delta ≥ T` — la regle ne les empeche pas |
+| Locations bloquées | locations de `S` dont `time_delta < T` — elles n'auraient pas pu être réservées |
+| Cas résolus | cas problématiques de `S` dont `time_delta < T` — la réservation conflictuelle n'a pas lieu |
+| Cas restants | cas problématiques dont `time_delta ≥ T` — la règle ne les empêche pas |
 
-#### Filtrage applique
+#### Filtrage appliqué
 
-| Etape | Locations |
+| Étape | Locations |
 |---|---|
 | Dataset complet | {N_TOTAL:,} |
-| Avec une location precedente < 12 h | {N_CONSEC:,} |
-| Dont retard precedent mesure (perimetre d'analyse) | {len(analysed):,} |
-| Dont cas problematiques | {N_PROBLEMATIC:,} |
+| Avec une location précédente < 12 h | {N_CONSEC:,} |
+| Dont retard précédent mesuré (périmètre d'analyse) | {len(analysed):,} |
+| Dont cas problématiques | {N_PROBLEMATIC:,} |
 
-Les {N_CONSEC - len(analysed):,} locations dont le retard precedent n'a pas ete enregistre sont
-**exclues** plutot qu'imputees a zero, ce qui sous-estimerait le probleme.
+Les {N_CONSEC - len(analysed):,} locations dont le retard précédent n'a pas été enregistré sont
+*exclues* plutôt qu'imputées à zéro, ce qui sous-estimerait le problème.
 
-`previous_ended_rental_id` est `NULL` des que l'ecart avec la location precedente depasse 12 h :
-c'est ce qui borne naturellement l'analyse a un seuil maximum de 720 minutes.
+`previous_ended_rental_id` est `NULL` dès que l'écart avec la location précédente dépasse 12 h :
+c'est ce qui borne naturellement l'analyse à un seuil maximum de 720 minutes.
         """
     )
 
-    with st.expander("Apercu du perimetre d'analyse"):
+    with st.expander("Aperçu du périmètre d'analyse"):
         st.dataframe(
             analysed[
                 [
@@ -570,4 +622,4 @@ c'est ce qui borne naturellement l'analyse a un seuil maximum de 720 minutes.
         )
 
 st.divider()
-st.caption("GetAround Analysis · Jedha Bootcamp Bloc 5 · Donnees : 21 310 locations")
+st.caption("GetAround Analysis · Jedha Bootcamp Bloc 5 · Données : 21 310 locations")
