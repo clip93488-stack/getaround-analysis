@@ -1,4 +1,4 @@
-# 🚗 GetAround Analysis — Jedha Bloc 5
+# GetAround Analysis — Jedha Bloc 5
 
 Analyse du **délai minimum entre deux locations** et **modèle de pricing** pour GetAround,
 le « Airbnb de la voiture ».
