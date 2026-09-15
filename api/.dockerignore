@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.ipynb
+.env
+train.py
+requirements-train.txt
+README.md
+data/
+notebooks/
+mlruns/
+mlflow.db
+.git/

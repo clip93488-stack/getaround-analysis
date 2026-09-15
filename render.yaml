@@ -1,0 +1,32 @@
+# Render Blueprint — deploiement des deux services GetAround.
+# Reference : https://render.com/docs/blueprint-spec
+#
+# `rootDir` ancre chaque service dans son sous-dossier : les chemins qui suivent
+# (buildCommand, startCommand, dockerfilePath) sont relatifs a ce repertoire, et
+# une modification hors de ce dossier ne declenche pas de rebuild inutile.
+services:
+
+  # ── Dashboard Streamlit ─────────────────────────────────────────────────────
+  - type: web
+    name: getaround-dashboard
+    runtime: python
+    plan: free
+    rootDir: dashboard
+    buildCommand: pip install -r requirements.txt
+    # Render injecte $PORT (10000 par defaut) et exige une ecoute sur 0.0.0.0.
+    # --server.headless evite l'invite d'e-mail de Streamlit au premier demarrage.
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      # Meme version que l'image de l'API : les versions figees dans
+      # requirements.txt sont toutes distribuees en roues cp312.
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+
+  # ── API FastAPI (image Docker) ──────────────────────────────────────────────
+  - type: web
+    name: getaround-api
+    runtime: docker
+    plan: free
+    rootDir: api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health

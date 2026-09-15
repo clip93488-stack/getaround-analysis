@@ -1,0 +1,3 @@
+# Dependances supplementaires pour api/train.py (non embarquees dans l'image Docker)
+-r requirements.txt
+mlflow==3.13.0

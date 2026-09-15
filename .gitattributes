@@ -1,0 +1,14 @@
+# Le depot est consomme par des images Linux (HuggingFace Spaces / Docker) :
+# tout fichier texte est stocke ET restitue en LF, quel que soit le poste.
+# Un Dockerfile ou un script en CRLF casse le build cote Linux.
+* text=auto eol=lf
+
+# Binaires : aucune conversion.
+*.xlsx  binary
+*.pkl   binary
+*.png   binary
+*.jpg   binary
+*.db    binary
+
+# Notebooks : diff lisible, pas de conversion surprise.
+*.ipynb text eol=lf

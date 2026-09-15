@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.venv/
+venv/
+.env
+.DS_Store
+
+# Configuration locale
+.claude/
+CLAUDE.md
+
+# MLflow (historique local des experiences)
+mlruns/
+mlflow.db
+
+# Streamlit
+.streamlit/secrets.toml
