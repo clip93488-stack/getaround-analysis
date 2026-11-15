@@ -1,5 +1,7 @@
 # GetAround Analysis — Jedha Bloc 5
 
+[![CI](https://github.com/clip93488-stack/getaround-analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/clip93488-stack/getaround-analysis/actions/workflows/ci.yml)
+
 Analyse du **délai minimum entre deux locations** et **modèle de pricing** pour GetAround,
 le « Airbnb de la voiture ».
 
@@ -17,19 +19,30 @@ locations. Le Product Manager doit arbitrer deux paramètres : la durée du seui
 et son périmètre (`scope` : toute la flotte, ou seulement les voitures Connect).
 
 **2 · La fixation des prix.** Les propriétaires ont besoin d'une estimation du prix journalier
-de location, servie par une API.
+de location, servie par une API et utilisable depuis une interface web.
 
 ## Livrables
 
 | Livrable | URL |
 |---|---|
-| Dashboard Streamlit | `https://getaround-dashboard.onrender.com` |
-| API FastAPI `/predict` | `https://getaround-api.onrender.com/predict` |
-| Documentation Swagger | `https://getaround-api.onrender.com/docs` |
-| Documentation rédigée | `https://getaround-api.onrender.com/docs-custom` |
+| Dashboard Streamlit (analyse des retards + estimation de prix) | `https://getaround-dashboard-z675.onrender.com` |
+| API FastAPI `/predict` | `https://getaround-api-ztfm.onrender.com/predict` |
+| Documentation de l'API (page `/docs`) | `https://getaround-api-ztfm.onrender.com/docs` |
+| Swagger UI interactif | `https://getaround-api-ztfm.onrender.com/swagger` |
 
-> Render suffixe le nom du service s'il est déjà pris (`getaround-api-a1b2`). Reporter les URL
-> réellement attribuées après le premier déploiement (cf. [Déploiement](#déploiement)).
+> Render a suffixé les noms des deux services (`-ztfm`, `-z675`) : ce sont les URL réellement
+> attribuées. Après un nouveau déploiement depuis zéro, elles seraient à reporter ici
+> (cf. [Déploiement](#déploiement)).
+
+### Comment les pièces s'articulent
+
+- `api/train.py` compare quatre modèles, trace chaque essai dans **MLflow** et produit le modèle
+  servi (`model.pkl`, `feature_info.pkl`) ainsi que les choix du formulaire du dashboard
+  (`dashboard/data/pricing_choices.json`).
+- L'**API** (FastAPI, image Docker) charge le modèle et l'expose sur `POST /predict`.
+- Le **dashboard** a deux vues, choisies dans la barre latérale : l'analyse du délai minimum
+  (pour le Product Manager) et l'**estimation de prix**, un formulaire qui appelle l'API.
+  Le dashboard ne charge jamais le modèle : il utilise l'API comme n'importe quel autre client.
 
 ---
 
@@ -72,6 +85,10 @@ sur un prix moyen de 121 €.
 | HistGradientBoosting | 16,83 | 17,18 | 11,06 | 0,730 |
 | Ridge *(référence)* | 18,43 | 17,93 | 12,11 | 0,706 |
 
+Le modèle est choisi sur la RMSE de validation croisée 5-fold du jeu d'entraînement : le jeu de
+test n'intervient pas dans la sélection. Le modèle servi est ensuite réentraîné sur toutes les
+données.
+
 ---
 
 ## Structure du dépôt
@@ -81,8 +98,9 @@ getaround/
 ├── notebooks/
 │   └── eda_delay.ipynb       Analyse exploratoire + simulation seuil × périmètre
 ├── dashboard/
-│   ├── app.py                Dashboard Streamlit
-│   ├── data/                 Copie du dataset (service Render autonome)
+│   ├── app.py                Dashboard Streamlit (vue « Délai minimum »)
+│   ├── price_estimator.py    Vue « Estimation de prix » : formulaire + client de l'API
+│   ├── data/                 Dataset des retards + pricing_choices.json (formulaire)
 │   ├── requirements.txt
 │   └── README.md
 ├── api/
@@ -95,12 +113,18 @@ getaround/
 │   ├── requirements.txt      Runtime de l'API (= versions d'entraînement)
 │   ├── requirements-train.txt
 │   └── README.md
+├── tests/                    Tests pytest (API, client HTTP et vue du dashboard)
+├── docs/
+│   └── mlflow_runs.png       Suivi des expériences dans MLflow
 ├── data/
 │   ├── projet_getaround_2.xlsx      Dataset retards
 │   ├── projet_getarond_3.csv        Dataset pricing
 │   ├── threshold_simulation.csv     Export de la simulation
 │   └── model_leaderboard.csv        Comparaison des modèles
-├── render.yaml              Blueprint Render : les deux services web
+├── .github/workflows/ci.yml  Intégration continue : flake8, black, isort, pytest
+├── .flake8, pyproject.toml   Configuration des outils de qualité (PEP 8, 79 colonnes)
+├── requirements-dev.txt      Dépendances de développement
+├── render.yaml               Blueprint Render : les deux services web
 └── README.md
 ```
 
@@ -108,11 +132,15 @@ getaround/
 
 ## Installation
 
-```bash
-pip install pandas numpy plotly scikit-learn mlflow joblib fastapi "uvicorn[standard]" openpyxl streamlit
-```
+Python **3.11 ou plus** est requis (`scikit-learn 1.9` et `numpy 2.4`) ; l'image Docker et
+Render utilisent Python 3.12.
 
-Python **3.11 ou plus** est requis (`scikit-learn 1.9` et `numpy 2.4`).
+```bash
+python -m venv .venv
+source .venv/bin/activate              # Windows : .venv\Scripts\activate
+pip install -r requirements-dev.txt    # API + dashboard + tests + qualité du code
+pip install -r api/requirements-train.txt   # en plus : MLflow, pour réentraîner
+```
 
 ## Utilisation
 
@@ -122,18 +150,21 @@ Python **3.11 ou plus** est requis (`scikit-learn 1.9` et `numpy 2.4`).
 jupyter lab notebooks/eda_delay.ipynb
 ```
 
-### Dashboard
-
-```bash
-cd dashboard && streamlit run app.py
-```
-
-### Entraînement du modèle
+### Entraînement du modèle et suivi MLflow
 
 ```bash
 python api/train.py
-mlflow ui --backend-store-uri sqlite:///mlflow.db
+mlflow ui --backend-store-uri sqlite:///mlflow.db      # http://localhost:5000
 ```
+
+Le script entraîne les quatre modèles, enregistre pour chacun ses paramètres, ses métriques
+(`cv_rmse`, `test_rmse`, `test_mae`, `test_r2`…) et le pipeline complet avec un exemple d'entrée
+dans MLflow, puis écrit les artefacts utilisés par l'API et par le dashboard.
+
+![Suivi des expériences dans MLflow](docs/mlflow_runs.png)
+
+Les graines aléatoires sont fixées : deux exécutions donnent les mêmes métriques et les mêmes
+prédictions. `mlflow.db` et `mlruns/` ne sont pas versionnés ; la commande ci-dessus les recrée.
 
 ### API
 
@@ -141,7 +172,8 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db
 cd api && uvicorn api:app --reload --port 8000
 ```
 
-Puis :
+Puis, sur `http://localhost:8000` : `/docs` (documentation rédigée), `/swagger` (Swagger UI),
+`/health`, `/model-info` et `POST /predict` :
 
 ```bash
 curl -X POST http://localhost:8000/predict \
@@ -150,6 +182,23 @@ curl -X POST http://localhost:8000/predict \
 ```
 
 Réponse : `{"prediction":[111.88]}`
+
+### Dashboard
+
+```bash
+cd dashboard && streamlit run app.py
+```
+
+La barre latérale propose deux vues : **Délai minimum entre locations** (par défaut) et
+**Estimation de prix**. Cette seconde vue envoie le formulaire à l'API (`POST /predict`) et
+affiche le prix journalier estimé, l'erreur moyenne du modèle et l'échange avec l'API.
+
+Par défaut, le dashboard interroge l'API publique. Pour utiliser une API locale :
+
+```bash
+API_URL=http://localhost:8000 streamlit run app.py          # Windows PowerShell :
+# $env:API_URL = "http://localhost:8000"; streamlit run app.py
+```
 
 ### Docker
 
@@ -161,6 +210,26 @@ curl http://localhost:8000/health
 
 Le conteneur lit la variable d'environnement `PORT` et retombe sur `8000` si elle est absente :
 `docker run -e PORT=10000 -p 10000:10000 getaround-api` sert la même image sur un autre port.
+L'image embarque uniquement `api.py`, `model.pkl` et `feature_info.pkl`.
+
+---
+
+## Qualité du code et tests
+
+```bash
+flake8                          # PEP 8, 79 colonnes : 0 erreur
+black --check . && isort --check .
+pytest                          # 42 tests
+```
+
+| Fichier de tests | Ce qu'il vérifie |
+|---|---|
+| `tests/test_api.py` | contrat de `/predict` (format positionnel et nommé, lot), erreurs 422, marque écrite avec ou sans accent, page `/docs` (un `h1`, tous les endpoints, exemples valides) |
+| `tests/test_price_estimator.py` | client HTTP du dashboard (nouvelles tentatives, délai dépassé, erreurs), cohérence du formulaire avec le modèle servi, parcours complet de la vue « Estimation de prix » face à l'API réelle |
+
+Les tests utilisent le vrai modèle : aucune réponse n'est simulée côté API. La même chaîne
+(flake8, black, isort, pytest) tourne à chaque `push` via GitHub Actions
+(`.github/workflows/ci.yml`).
 
 ---
 
@@ -207,24 +276,29 @@ Render injecte la variable d'environnement **`PORT`** (10000 par défaut) et exi
 ### Étape 3 — Vérifier le déploiement
 
 ```bash
-curl https://getaround-api.onrender.com/health
+curl https://getaround-api-ztfm.onrender.com/health
 ```
 
 Réponse attendue : `{"status":"ok","model":"loaded","model_type":"GradientBoosting"}`
 
 ```bash
-curl -X POST https://getaround-api.onrender.com/predict \
+curl -X POST https://getaround-api-ztfm.onrender.com/predict \
      -H "Content-Type: application/json" \
      -d '{"input": [["Citroën", 140411, 100, "diesel", "black", "convertible", true, true, false, false, true, true, true]]}'
 ```
 
 Réponse attendue : `{"prediction":[111.88]}`
 
-Enfin, ouvrir `/docs` (Swagger UI) et `/docs-custom` (documentation rédigée), puis reporter les
-quatre URL obtenues dans le tableau [Livrables](#livrables) en tête de ce README.
+Enfin, ouvrir `/docs` (documentation rédigée) et `/swagger` (Swagger UI), puis reporter les
+URL obtenues dans le tableau [Livrables](#livrables) en tête de ce README.
+
+Le dashboard appelle l'API à l'adresse publique ci-dessus. Si Render a attribué un autre nom au
+service de l'API, définir la variable d'environnement `API_URL` du service `getaround-dashboard`
+(Render → Environment) avec l'URL réelle de l'API.
 
 > **Plan gratuit :** un service inactif depuis 15 min est mis en veille. La première requête
 > qui le réveille peut prendre ~50 s — le premier `curl` après une pause n'est donc pas un échec.
+> À l'ouverture de la vue « Estimation de prix », le dashboard réveille l'API en arrière-plan.
 
 ### Mettre à jour un service
 
@@ -246,6 +320,18 @@ enregistré sont *exclues* plutôt qu'imputées à zéro, ce qui sous-estimerait
 **Encodage du CSV pricing.** Le fichier est en UTF-8. Le lire en latin-1 transformerait
 silencieusement `Citroën` en mojibake — or cette marque représente 20 % des lignes, et deviendrait
 une catégorie inconnue à l'inférence.
+
+**Libellés catégoriels reçus par l'API.** Le même problème se pose côté client : un appel avec
+`Citroen` (sans tréma) n'est pas une marque connue du `OneHotEncoder`, et la prédiction perdrait
+l'effet de la marque (123,78 € au lieu de 111,88 € pour la même voiture). L'API ramène donc
+chaque libellé à la modalité vue à l'entraînement, sans tenir compte de la casse ni des accents.
+Une marque réellement inconnue n'est pas rejetée : elle est encodée à zéro.
+
+**Formulaire du dashboard.** Les listes de marques, carburants, etc. du formulaire proviennent de
+`dashboard/data/pricing_choices.json`, écrit par `train.py` à partir des données d'entraînement,
+et non d'un appel à l'API au chargement de la page : l'hébergement gratuit met l'API en veille
+(réveil de 30 à 60 s). Le calcul du prix, lui, passe toujours par l'API. Un test vérifie que ce
+fichier reste cohérent avec le contrat de `/model-info`.
 
 **Portée des résultats.** L'analyse du seuil repose sur 1 729 locations, soit 8 % du dataset.
 Le modèle suppose qu'une location bloquée est une location *perdue* — hypothèse pessimiste,

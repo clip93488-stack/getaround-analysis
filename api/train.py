@@ -1,18 +1,19 @@
-# -*- coding: utf-8 -*-
-"""
-GetAround — entrainement du modele de pricing.
+"""GetAround - entraînement du modèle de pricing.
 
-Compare plusieurs regresseurs en validation croisee, trace chaque essai dans MLflow,
-puis sauvegarde le meilleur pipeline pour l'API FastAPI.
+Compare plusieurs régresseurs en validation croisée, trace chaque essai dans
+MLflow, puis sauvegarde le meilleur pipeline pour l'API FastAPI.
 
-Usage :  python api/train.py     (depuis n'importe quel repertoire)
+Usage :  python api/train.py     (depuis n'importe quel répertoire)
 
 Artefacts produits :
-    api/model.pkl         pipeline sklearn complet (preprocessing + modele)
-    api/feature_info.pkl  ordre des colonnes et metadonnees attendus par l'API
-    mlruns/               historique des experiences MLflow
+    api/model.pkl         pipeline sklearn complet (preprocessing + modèle)
+    api/feature_info.pkl  ordre des colonnes et métadonnées attendus par l'API
+    data/model_leaderboard.csv  métriques de chaque modèle comparé
+    dashboard/data/pricing_choices.json  choix du formulaire du dashboard
+    mlflow.db, mlruns/    historique des expériences MLflow
 """
 
+import json
 from pathlib import Path
 
 import joblib
@@ -40,22 +41,20 @@ TARGET = "rental_price_per_day"
 RANDOM_STATE = 42
 
 EXPERIMENT = "getaround-pricing"
-# MLflow >= 3.10 a place le backend "fichier" (./mlruns) en maintenance et leve une
-# exception a l'usage : le backend local recommande est desormais SQLite. Les artefacts
-# (modeles serialises) restent ecrits dans ./mlruns.
+# MLflow >= 3.10 a placé le backend "fichier" (./mlruns) en maintenance et
+# lève une exception à l'usage : le backend local recommandé est désormais
+# SQLite. Les artefacts (modèles sérialisés) restent écrits dans ./mlruns.
 TRACKING_URI = f"sqlite:///{(ROOT / 'mlflow.db').as_posix()}"
 ARTIFACT_URI = (ROOT / "mlruns").as_uri()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1 · Chargement et nettoyage
-# ─────────────────────────────────────────────────────────────────────────────
+# 1. Chargement et nettoyage
 def load_data() -> pd.DataFrame:
-    """Charge le dataset pricing et retire les lignes physiquement impossibles."""
-    # Le fichier est en UTF-8 : le lire en latin-1 transformerait silencieusement
-    # 'Citroen' en mojibake, or cette marque represente 20 % des lignes -- elle
-    # deviendrait alors une categorie inconnue a l'inference.
-    # La premiere colonne est un index sans nom -> index_col=0.
+    """Charge le dataset de pricing et retire les lignes impossibles."""
+    # Le fichier est en UTF-8 : le lire en latin-1 transformerait
+    # silencieusement 'Citroën' en mojibake. Cette marque représentant 20 %
+    # des lignes, elle deviendrait une catégorie inconnue à l'inférence.
+    # La première colonne est un index sans nom -> index_col=0.
     df = pd.read_csv(DATA, encoding="utf-8", index_col=0)
     n_raw = len(df)
 
@@ -64,48 +63,107 @@ def load_data() -> pd.DataFrame:
     invalid = (df["mileage"] < 0) | (df["engine_power"] <= 0)
     df = df[~invalid]
 
-    print(f"Donnees   : {n_raw} lignes brutes -> {len(df)} conservees "
-          f"({invalid.sum()} valeurs aberrantes retirees : kilometrage negatif "
-          f"ou puissance nulle)")
+    print(
+        f"Données   : {n_raw} lignes brutes -> {len(df)} conservées "
+        f"({invalid.sum()} valeurs aberrantes retirées : kilométrage "
+        "négatif ou puissance nulle)"
+    )
     return df.reset_index(drop=True)
 
 
 def build_preprocessor(X: pd.DataFrame):
-    """ColumnTransformer : numeriques standardisees, booleens bruts, categorielles one-hot."""
+    """Construit le ColumnTransformer du pipeline.
+
+    Numériques standardisées, booléens laissés tels quels, catégorielles
+    encodées en one-hot.
+    """
     cat_cols = X.select_dtypes(include=["object"]).columns.tolist()
     bool_cols = X.select_dtypes(include=["bool"]).columns.tolist()
     num_cols = X.select_dtypes(include=["int64", "float64"]).columns.tolist()
 
-    print(f"Features  : {len(num_cols)} numeriques, {len(bool_cols)} booleennes, "
-          f"{len(cat_cols)} categorielles")
+    print(
+        f"Features  : {len(num_cols)} numériques, "
+        f"{len(bool_cols)} booléennes, {len(cat_cols)} catégorielles"
+    )
 
     pre = ColumnTransformer(
         transformers=[
             ("num", StandardScaler(), num_cols),
-            # Les booleens sont deja sur une echelle 0/1 : les standardiser n'apporte rien.
+            # Les booléens sont déjà sur une échelle 0/1 : les standardiser
+            # n'apporte rien.
             ("bool", "passthrough", bool_cols),
-            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols),
+            (
+                "cat",
+                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                cat_cols,
+            ),
         ]
     )
     return pre, num_cols, bool_cols, cat_cols
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2 · Entrainement
-# ─────────────────────────────────────────────────────────────────────────────
+def export_form_choices(X, y, num_cols, bool_cols, cat_cols, path):
+    """Écrit les choix proposés par le formulaire « Estimation de prix ».
+
+    Le formulaire du dashboard est construit à partir de ce fichier plutôt
+    que d'un appel à l'API au chargement de la page : l'hébergement gratuit
+    met l'API en veille et son réveil prend 30 à 60 secondes. Ainsi, un
+    nouvel entraînement met à jour le modèle servi et le formulaire.
+    """
+    choices = {
+        "columns": X.columns.tolist(),
+        "categories": {
+            c: sorted(X[c].dropna().unique().tolist()) for c in cat_cols
+        },
+        "numeric": {
+            c: {
+                "min": float(X[c].min()),
+                "max": float(X[c].max()),
+                "median": float(X[c].median()),
+            }
+            for c in num_cols
+        },
+        "booleans": bool_cols,
+        "defaults": {
+            **{c: X[c].mode().iloc[0] for c in cat_cols},
+            **{c: bool(X[c].mode().iloc[0]) for c in bool_cols},
+        },
+        "price": {
+            "min": float(y.min()),
+            "max": float(y.max()),
+            "mean": float(y.mean()),
+            "median": float(y.median()),
+        },
+    }
+    path.write_text(
+        json.dumps(choices, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+# 2. Entraînement
 CANDIDATES = {
     "Ridge": Ridge(alpha=1.0, random_state=RANDOM_STATE),
     "RandomForest": RandomForestRegressor(
-        n_estimators=300, max_depth=14, min_samples_leaf=2,
-        random_state=RANDOM_STATE, n_jobs=-1,
+        n_estimators=300,
+        max_depth=14,
+        min_samples_leaf=2,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
     ),
     "GradientBoosting": GradientBoostingRegressor(
-        n_estimators=300, learning_rate=0.05, max_depth=4,
-        subsample=0.9, random_state=RANDOM_STATE,
+        n_estimators=300,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.9,
+        random_state=RANDOM_STATE,
     ),
     "HistGradientBoosting": HistGradientBoostingRegressor(
-        max_iter=400, learning_rate=0.06, max_depth=6,
-        early_stopping=True, random_state=RANDOM_STATE,
+        max_iter=400,
+        learning_rate=0.06,
+        max_depth=6,
+        early_stopping=True,
+        random_state=RANDOM_STATE,
     ),
 }
 
@@ -122,7 +180,10 @@ def main() -> None:
         X, y, test_size=0.2, random_state=RANDOM_STATE
     )
     print(f"Split     : {len(X_train)} train / {len(X_test)} test")
-    print(f"Cible     : moyenne {y.mean():.1f} EUR/jour, ecart-type {y.std():.1f}\n")
+    print(
+        f"Cible     : moyenne {y.mean():.1f} EUR/jour, "
+        f"écart-type {y.std():.1f}\n"
+    )
 
     (ROOT / "mlruns").mkdir(exist_ok=True)
     mlflow.set_tracking_uri(TRACKING_URI)
@@ -137,10 +198,15 @@ def main() -> None:
         with mlflow.start_run(run_name=name):
             pipe = Pipeline([("preprocessor", preprocessor), ("model", model)])
 
-            # Selection sur la validation croisee du train : le test reste intouche.
+            # Sélection sur la validation croisée du train : le test reste
+            # intouché.
             cv_rmse = -cross_val_score(
-                pipe, X_train, y_train, cv=cv,
-                scoring="neg_root_mean_squared_error", n_jobs=-1,
+                pipe,
+                X_train,
+                y_train,
+                cv=cv,
+                scoring="neg_root_mean_squared_error",
+                n_jobs=-1,
             )
 
             pipe.fit(X_train, y_train)
@@ -150,19 +216,27 @@ def main() -> None:
             metrics = {
                 "cv_rmse": float(cv_rmse.mean()),
                 "cv_rmse_std": float(cv_rmse.std()),
-                "train_rmse": float(np.sqrt(mean_squared_error(y_train, pred_train))),
+                "train_rmse": float(
+                    np.sqrt(mean_squared_error(y_train, pred_train))
+                ),
                 "train_r2": float(r2_score(y_train, pred_train)),
-                "test_rmse": float(np.sqrt(mean_squared_error(y_test, pred_test))),
+                "test_rmse": float(
+                    np.sqrt(mean_squared_error(y_test, pred_test))
+                ),
                 "test_mae": float(mean_absolute_error(y_test, pred_test)),
                 "test_r2": float(r2_score(y_test, pred_test)),
             }
 
             mlflow.log_param("model_type", name)
-            mlflow.log_params({f"model__{k}": v for k, v in model.get_params().items()})
+            mlflow.log_params(
+                {f"model__{k}": v for k, v in model.get_params().items()}
+            )
             mlflow.log_param("n_train", len(X_train))
             mlflow.log_param("n_features_raw", X.shape[1])
             mlflow.log_metrics(metrics)
-            mlflow.sklearn.log_model(pipe, name="model", input_example=X_train.head(3))
+            mlflow.sklearn.log_model(
+                pipe, name="model", input_example=X_train.head(3)
+            )
 
             print(
                 f"{name:22s} CV-RMSE {metrics['cv_rmse']:6.2f} "
@@ -175,21 +249,21 @@ def main() -> None:
             if metrics["cv_rmse"] < best["cv_rmse"]:
                 best = {"name": name, "pipeline": pipe, **metrics}
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # 3 · Selection et sauvegarde
-    # ─────────────────────────────────────────────────────────────────────────
+    # 3. Sélection et sauvegarde
     print(
-        f"\nMeilleur modele : {best['name']} "
+        f"\nMeilleur modèle : {best['name']} "
         f"(CV-RMSE {best['cv_rmse']:.2f} | test R2 {best['test_r2']:.4f} | "
         f"test MAE {best['test_mae']:.2f} EUR)"
     )
 
-    # Reentrainement sur l'integralite des donnees : le modele servi en production
-    # beneficie aussi des 20 % mis de cote pour l'evaluation.
-    final = Pipeline([
-        ("preprocessor", preprocessor),
-        ("model", CANDIDATES[best["name"]]),
-    ]).fit(X, y)
+    # Réentraînement sur l'intégralité des données : le modèle servi en
+    # production bénéficie aussi des 20 % mis de côté pour l'évaluation.
+    final = Pipeline(
+        [
+            ("preprocessor", preprocessor),
+            ("model", CANDIDATES[best["name"]]),
+        ]
+    ).fit(X, y)
 
     joblib.dump(final, API_DIR / "model.pkl")
 
@@ -198,25 +272,40 @@ def main() -> None:
         "num_cols": num_cols,
         "bool_cols": bool_cols,
         "cat_cols": cat_cols,
-        "cat_values": {c: sorted(X[c].dropna().unique().tolist()) for c in cat_cols},
+        "cat_values": {
+            c: sorted(X[c].dropna().unique().tolist()) for c in cat_cols
+        },
         "target": TARGET,
         "n_rows": int(len(df)),
         "model_name": best["name"],
-        "metrics": {k: best[k] for k in ("cv_rmse", "test_rmse", "test_mae", "test_r2")},
-        # Types Python natifs (et non numpy) pour rester serialisable en JSON cote API.
+        "metrics": {
+            k: best[k] for k in ("cv_rmse", "test_rmse", "test_mae", "test_r2")
+        },
+        # Types Python natifs (et non numpy) pour rester sérialisable en
+        # JSON côté API.
         "example": [v.item() if hasattr(v, "item") else v for v in X.iloc[0]],
         "price_range": [float(y.min()), float(y.max())],
     }
     joblib.dump(feature_info, API_DIR / "feature_info.pkl")
 
-    pd.DataFrame(leaderboard).to_csv(ROOT / "data" / "model_leaderboard.csv", index=False)
+    leaderboard_path = ROOT / "data" / "model_leaderboard.csv"
+    pd.DataFrame(leaderboard).to_csv(leaderboard_path, index=False)
 
-    print(f"\nArtefacts :")
+    choices_path = ROOT / "dashboard" / "data" / "pricing_choices.json"
+    export_form_choices(X, y, num_cols, bool_cols, cat_cols, choices_path)
+
+    print("\nArtefacts :")
     print(f"  {API_DIR / 'model.pkl'}")
     print(f"  {API_DIR / 'feature_info.pkl'}")
-    print(f"  {ROOT / 'data' / 'model_leaderboard.csv'}")
-    print(f"  {ROOT / 'mlflow.db'}  (mlflow ui --backend-store-uri sqlite:///mlflow.db)")
-    print(f"\nOrdre des colonnes attendu par /predict :\n  {X.columns.tolist()}")
+    print(f"  {leaderboard_path}")
+    print(f"  {choices_path}")
+    print(
+        f"  {ROOT / 'mlflow.db'}  "
+        "(mlflow ui --backend-store-uri sqlite:///mlflow.db)"
+    )
+    print(
+        f"\nOrdre des colonnes attendu par /predict :\n  {X.columns.tolist()}"
+    )
 
 
 if __name__ == "__main__":

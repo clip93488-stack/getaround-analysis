@@ -1,0 +1,14 @@
+# Configuration des outils de qualité du dépôt (PEP 8, formatage, tests).
+# Vérifications :  flake8   |   black --check .   |   isort --check .   |   pytest
+
+[tool.black]
+line-length = 79
+
+[tool.isort]
+profile = "black"
+line_length = 79
+known_first_party = ["api", "price_estimator"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

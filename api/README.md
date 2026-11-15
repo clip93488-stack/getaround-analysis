@@ -1,4 +1,4 @@
-# 🚗 GetAround — Pricing API
+# GetAround — Pricing API
 
 API de prédiction du **prix de location journalier** d'une voiture GetAround, à partir de ses
 caractéristiques. Modèle `GradientBoostingRegressor` entraîné sur 4 841 annonces.
@@ -16,8 +16,10 @@ caractéristiques. Modèle `GradientBoostingRegressor` entraîné sur 4 841 anno
 | `POST` | `/predict` | Prédiction du prix journalier (lot supporté) |
 | `GET` | `/model-info` | Ordre des colonnes, modalités acceptées, performances |
 | `GET` | `/health` | État du service |
-| `GET` | `/docs` | Documentation interactive Swagger UI |
-| `GET` | `/docs-custom` | Documentation HTML rédigée |
+| `GET` | `/docs` | Documentation rédigée (page HTML) |
+| `GET` | `/swagger` | Swagger UI interactif, généré par FastAPI |
+
+`/docs-custom`, ancienne adresse de la documentation rédigée, redirige vers `/docs`.
 
 ## `POST /predict`
 
@@ -64,6 +66,16 @@ has_getaround_connect, has_speed_regulator, winter_tires
 
 Les modalités acceptées pour chaque colonne catégorielle sont exposées par `GET /model-info`.
 
+### Libellés catégoriels
+
+Les libellés sont reconnus **sans tenir compte de la casse ni des accents** : `Citroen`,
+`citroën` et `CITROEN` sont lus comme `Citroën` et donnent la même prédiction. Sans cette
+normalisation, `Citroen` serait une marque inconnue du `OneHotEncoder` et la prédiction
+perdrait l'effet de la marque.
+
+Une modalité réellement inconnue (marque absente du jeu d'entraînement) n'est **pas** rejetée :
+elle est encodée à zéro. La prédiction reste exploitable, mais moins précise.
+
 ### Codes de réponse
 
 | Code | Signification |
@@ -71,9 +83,6 @@ Les modalités acceptées pour chaque colonne catégorielle sont exposées par `
 | `200` | Prédiction retournée |
 | `422` | Charge utile invalide — le détail précise la colonne fautive |
 | `500` | Erreur interne du modèle |
-
-Une modalité catégorielle inconnue (marque absente du jeu d'entraînement) n'est **pas** rejetée :
-elle est encodée à zéro par le `OneHotEncoder`. La prédiction reste exploitable, mais moins précise.
 
 ## Entraînement
 
@@ -99,14 +108,25 @@ Consulter les runs :
 mlflow ui --backend-store-uri sqlite:///mlflow.db
 ```
 
-Artefacts produits : `model.pkl` (pipeline complet) et `feature_info.pkl` (contrat d'entrée).
-Les deux sont **versionnés** — ils sont nécessaires au démarrage de l'API.
+Artefacts produits : `model.pkl` (pipeline complet), `feature_info.pkl` (contrat d'entrée),
+`data/model_leaderboard.csv` et `dashboard/data/pricing_choices.json` (choix du formulaire du
+dashboard). `model.pkl` et `feature_info.pkl` sont **versionnés** : ils sont nécessaires au
+démarrage de l'API.
 
 ## Lancement local
 
 ```bash
 pip install -r requirements.txt
 uvicorn api:app --reload --port 8000
+```
+
+## Tests
+
+Depuis la racine du dépôt :
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/test_api.py
 ```
 
 ## Docker
@@ -128,6 +148,9 @@ docker run -e PORT=10000 -p 10000:10000 getaround-api
 L'image est basée sur `python:3.12-slim` : `scikit-learn 1.9` et `numpy 2.4` exigent Python ≥ 3.11,
 et les versions de `requirements.txt` doivent correspondre exactement à celles de l'entraînement,
 faute de quoi `model.pkl` ne serait pas désérialisable.
+
+L'image ne contient que `api.py`, `model.pkl` et `feature_info.pkl` : la page `/docs` est donc
+générée par `api.py` lui-même, à partir du modèle réellement chargé.
 
 ---
 

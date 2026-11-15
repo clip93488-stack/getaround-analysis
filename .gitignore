@@ -17,3 +17,6 @@ mlflow.db
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Tests
+.pytest_cache/
