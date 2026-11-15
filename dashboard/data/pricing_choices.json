@@ -1,0 +1,117 @@
+{
+  "columns": [
+    "model_key",
+    "mileage",
+    "engine_power",
+    "fuel",
+    "paint_color",
+    "car_type",
+    "private_parking_available",
+    "has_gps",
+    "has_air_conditioning",
+    "automatic_car",
+    "has_getaround_connect",
+    "has_speed_regulator",
+    "winter_tires"
+  ],
+  "categories": {
+    "model_key": [
+      "Alfa Romeo",
+      "Audi",
+      "BMW",
+      "Citroën",
+      "Ferrari",
+      "Fiat",
+      "Ford",
+      "Honda",
+      "KIA Motors",
+      "Lamborghini",
+      "Lexus",
+      "Maserati",
+      "Mazda",
+      "Mercedes",
+      "Mini",
+      "Mitsubishi",
+      "Nissan",
+      "Opel",
+      "PGO",
+      "Peugeot",
+      "Porsche",
+      "Renault",
+      "SEAT",
+      "Subaru",
+      "Suzuki",
+      "Toyota",
+      "Volkswagen",
+      "Yamaha"
+    ],
+    "fuel": [
+      "diesel",
+      "electro",
+      "hybrid_petrol",
+      "petrol"
+    ],
+    "paint_color": [
+      "beige",
+      "black",
+      "blue",
+      "brown",
+      "green",
+      "grey",
+      "orange",
+      "red",
+      "silver",
+      "white"
+    ],
+    "car_type": [
+      "convertible",
+      "coupe",
+      "estate",
+      "hatchback",
+      "sedan",
+      "subcompact",
+      "suv",
+      "van"
+    ]
+  },
+  "numeric": {
+    "mileage": {
+      "min": 476.0,
+      "max": 1000376.0,
+      "median": 141089.0
+    },
+    "engine_power": {
+      "min": 25.0,
+      "max": 423.0,
+      "median": 120.0
+    }
+  },
+  "booleans": [
+    "private_parking_available",
+    "has_gps",
+    "has_air_conditioning",
+    "automatic_car",
+    "has_getaround_connect",
+    "has_speed_regulator",
+    "winter_tires"
+  ],
+  "defaults": {
+    "model_key": "Citroën",
+    "fuel": "diesel",
+    "paint_color": "black",
+    "car_type": "estate",
+    "private_parking_available": true,
+    "has_gps": true,
+    "has_air_conditioning": false,
+    "automatic_car": false,
+    "has_getaround_connect": false,
+    "has_speed_regulator": false,
+    "winter_tires": true
+  },
+  "price": {
+    "min": 10.0,
+    "max": 422.0,
+    "mean": 121.18570543276182,
+    "median": 119.0
+  }
+}

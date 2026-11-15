@@ -1,0 +1,9 @@
+# Outils de développement : tests et qualité du code (PEP 8).
+# Installation :  pip install -r requirements-dev.txt
+-r api/requirements.txt
+-r dashboard/requirements.txt
+pytest==9.2.0
+httpx==0.28.1
+flake8==7.5.0
+black==26.10.1
+isort==9.0.2
